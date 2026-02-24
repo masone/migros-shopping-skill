@@ -1,6 +1,6 @@
 {
   "browser": {
-    "browserName": "firefox",
+    "browserName": "chrome",
     "remoteEndpoint": "ws://localhost:9222/browser",
     "contextOptions": {
       "viewport": { "width": 1600, "height": 1200 },
