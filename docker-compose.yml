@@ -1,0 +1,7 @@
+services:
+  camoufox:
+    build: ./camoufox
+    ports:
+      - "9222:9222"
+    shm_size: "2gb"
+    restart: unless-stopped

@@ -1,0 +1,11 @@
+{
+  "browser": {
+    "browserName": "firefox",
+    "remoteEndpoint": "ws://localhost:9222/browser",
+    "contextOptions": {
+      "viewport": { "width": 1600, "height": 1200 },
+      "locale": "de-CH",
+      "timezoneId": "Europe/Zurich"
+    }
+  }
+}
