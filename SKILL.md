@@ -16,13 +16,16 @@ No browser required. Uses OAuth PKCE (same as Migros mobile app) + web session f
 # Required — set in .env file at project root:
 MIGROS_USERNAME=your@email.com
 MIGROS_PASSWORD=yourpassword
+MIGROS_REGION=gmzh          # See .env.example for all regions
+MIGROS_ZIPCODE=8047
+MIGROS_LANGUAGE=de          # de, fr, it, en (default: de)
 ```
 
 Requires: `curl_cffi` (`pip install curl_cffi`)
 
-Always use **online** context (never instore). Region: gmzh, zipcode: 8047.
+Always use **online** context (never instore).
 
-## Step 1 — Login
+## Step 0 — Login
 
 ```bash
 bash ./scripts/migros-login.sh
@@ -31,6 +34,16 @@ bash ./scripts/migros-login.sh
 Result: `{"status":"login-ok","expires_in":3600}`
 
 Tokens are cached at `~/.migros-cli/web_session.json`. Re-login only needed when refresh token expires.
+
+## Step 1 — Create a new list
+
+Always create a fresh list before adding products, to avoid stale items from previous runs.
+
+```bash
+python3 ./scripts/migros-api.py newlist "Einkauf 16.03."
+```
+
+Result: `{"status":"created","listId":31951246,"name":"Einkauf 16.03."}`
 
 ## Step 2 — Check current offers
 
@@ -42,7 +55,7 @@ Result: JSON with promotions. Use this to prefer sale items when selecting produ
 
 ## Step 3 — Search products
 
-Always search in **German** — Migros.ch is a Swiss German site.
+Search in the language configured by `MIGROS_LANGUAGE` (default: German).
 
 ```bash
 bash ./scripts/migros-search.sh "spaghetti"
@@ -66,8 +79,7 @@ Search often returns many similar products. Use these rules to pick the best mat
 
 ### Search tips
 
-- Always search in **German** — Migros.ch is a Swiss German site.
-- Use the most specific German term: "Rüebli" not "Karotten", "Poulet" not "Huhn".
+- Search in the configured language. For German: use specific terms like "Rüebli" not "Karotten", "Poulet" not "Huhn".
 - For compound items (e.g. "Bio Vollmilch"), search the main noun ("Vollmilch") and filter results by description.
 - If a first search returns nothing relevant, try synonyms or broader terms.
 
@@ -121,6 +133,8 @@ At the end, always report:
 |----------|--------|------|---------|
 | `/onesearch-oc-seaapi/public/v5/search` | POST | Bearer | Product search |
 | `/product-display/public/v4/product-cards` | POST | Bearer | Product details (name, price) |
+| `/shopping-list/public/v1/list` | POST | Bearer | Create new list |
+| `/shopping-list/public/v1/lists/overview` | GET | Bearer | List all lists |
 | `/shopping-list/public/v3/items` | PUT | Bearer | Add to online basket |
 | `/shopping-list/public/v2/list/details` | GET | Bearer | Basket contents |
 | `/shopping-list/public/v1/lists/{id}/invitation` | GET | Bearer | Get share link |

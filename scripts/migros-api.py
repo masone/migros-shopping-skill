@@ -14,6 +14,7 @@ Usage:
   migros-api.py cart            # Show current online basket
   migros-api.py offers          # Show current offers/promotions
   migros-api.py share           # Get shareable shopping list URL
+  migros-api.py newlist NAME    # Create a new shopping list
   migros-api.py lists           # Show all shopping lists
 """
 
@@ -39,7 +40,6 @@ TOKEN_URL = "https://login.migros.ch/oauth2/token"
 SCOPES = "openid offline_access"
 
 WEB_BASE = "https://www.migros.ch"
-REGION = "gmzh"
 
 
 def load_env():
@@ -59,6 +59,27 @@ def get_creds():
     if not user or not pw:
         sys.exit("Set MIGROS_USERNAME and MIGROS_PASSWORD in .env")
     return user, pw
+
+
+def get_region():
+    load_env()
+    region = os.environ.get("MIGROS_REGION", "")
+    if not region:
+        sys.exit("Set MIGROS_REGION in .env (e.g. gmzh, gmbs, gmos)")
+    return region
+
+
+def get_zipcode():
+    load_env()
+    zipcode = os.environ.get("MIGROS_ZIPCODE", "")
+    if not zipcode:
+        sys.exit("Set MIGROS_ZIPCODE in .env (e.g. 8047)")
+    return zipcode
+
+
+def get_language():
+    load_env()
+    return os.environ.get("MIGROS_LANGUAGE", "de")
 
 
 # --- PKCE helpers ---
@@ -234,7 +255,7 @@ def cmd_search(query):
 
     resp = s.post(f"{WEB_BASE}/onesearch-oc-seaapi/public/v5/search",
         headers=headers,
-        json={"query": query, "regionId": REGION, "from": 0, "language": "de",
+        json={"query": query, "regionId": get_region(), "from": 0, "language": get_language(),
               "productIds": [], "algorithm": "DEFAULT"},
         timeout=15)
 
@@ -263,6 +284,9 @@ def cmd_search(query):
         if resp2.status_code == 200:
             cards = resp2.json()
             for card in cards:
+                avail = card.get("productAvailability", "")
+                if "ONLINE" not in avail:
+                    continue
                 offer = card.get("offer", {})
                 price = offer.get("price", {})
                 products.append({
@@ -324,7 +348,7 @@ def cmd_cart():
     list_id = _get_list_id_auto(s, headers)
 
     resp = s.get(f"{WEB_BASE}/shopping-list/public/v2/list/details",
-        params={"shoppingListId": list_id},
+        params={"shoppingListId": list_id, "zipCode": get_zipcode()},
         headers=headers, timeout=15)
 
     if resp.status_code != 200:
@@ -359,7 +383,7 @@ def cmd_offers():
 
     resp = s.post(f"{WEB_BASE}/onesearch-oc-seaapi/public/v5/search",
         headers=headers,
-        json={"query": "", "regionId": REGION, "from": 0, "language": "de",
+        json={"query": "", "regionId": get_region(), "from": 0, "language": get_language(),
               "facetsCriteria": [{"facetId": "offers", "values": ["true"]}],
               "algorithm": "DEFAULT"},
         timeout=15)
@@ -431,19 +455,11 @@ def _fetch_lists(s, headers):
 
 
 def _get_list_id_auto(s, headers):
-    """Auto-discover the most recent shopping list ID, or fall back to env/cache."""
-    # 1. Check session cache
+    """Auto-discover the most recent shopping list ID (cached in session)."""
     cached = load_session()
     if cached and cached.get("list_id"):
         return int(cached["list_id"])
 
-    # 2. Check env var
-    load_env()
-    env_id = os.environ.get("MIGROS_LIST_ID", "")
-    if env_id:
-        return int(env_id)
-
-    # 3. Auto-discover from API (most recent list)
     lists = _fetch_lists(s, headers)
     if lists:
         latest = max(lists, key=lambda x: x.get("createdAt", ""))
@@ -454,6 +470,24 @@ def _get_list_id_auto(s, headers):
         return list_id
 
     sys.exit("No shopping lists found. Create one on migros.ch first.")
+
+
+def cmd_newlist(name):
+    """Create a new shopping list and set it as active."""
+    s, session = _web_session()
+    headers = _web_headers(session)
+
+    resp = s.post(f"{WEB_BASE}/shopping-list/public/v1/list",
+        headers=headers, json={"name": name}, timeout=15)
+    if resp.status_code not in (200, 201):
+        sys.exit(f"Create list failed: {resp.status_code} {resp.text[:200]}")
+
+    data = resp.json()
+    list_id = data.get("shoppingListId", data) if isinstance(data, dict) else data
+    cached = load_session() or {}
+    cached["list_id"] = int(list_id)
+    save_session(cached)
+    print(json.dumps({"status": "created", "listId": int(list_id), "name": name}))
 
 
 def cmd_lists():
@@ -497,6 +531,10 @@ if __name__ == "__main__":
         cmd_offers()
     elif cmd == "share":
         cmd_share()
+    elif cmd == "newlist":
+        if len(sys.argv) < 3:
+            sys.exit("Usage: migros-api.py newlist NAME")
+        cmd_newlist(" ".join(sys.argv[2:]))
     elif cmd == "lists":
         cmd_lists()
     else:
