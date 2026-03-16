@@ -1,107 +1,126 @@
 ---
 name: migros-shopping
 description: Automate Migros.ch shopping — search products, build a cart, and generate a shareable list link. Use when adding products, filling a shopping cart, or creating a share link on migros.ch.
-allowed-tools: Bash(playwright-cli:*), Bash(sed:*), Bash(cat:*), Bash(xargs:*)
+allowed-tools: Bash(python3:*), Bash(bash:*)
 ---
 
 # Migros Shopping
 
-Automate shopping on migros.ch using `playwright-cli` with run-code scripts for low token usage.
+Automate shopping on migros.ch using direct API calls via `scripts/migros-api.py`.
 
-Scripts live in `./scripts/`. Variables are injected via `sed`, output comes back as `### Result`.
+No browser required. Uses OAuth PKCE (same as Migros mobile app) + web session for cart operations.
 
 ## Environment
 
 ```bash
-# Required — set in your shell:
-export MIGROS_USER="your@email.com"
-export MIGROS_PASS="yourpassword"
-# Ensure playwright-cli is in PATH:
-export PATH="$PATH:/path/to/migros-shopping-skill/node_modules/.bin"
+# Required — set in .env file at project root:
+MIGROS_USERNAME=your@email.com
+MIGROS_PASSWORD=yourpassword
 ```
 
-Requires a Chromium browser accessible at the CDP endpoint in `cli.config.json`.
+Requires: `curl_cffi` (`pip install curl_cffi`)
 
-## Step 1 — Open browser
+Always use **online** context (never instore). Region: gmzh, zipcode: 8047.
+
+## Step 1 — Login
 
 ```bash
-playwright-cli --config cli.config.json open
+bash ./scripts/migros-login.sh
 ```
 
-## Step 2 — Login, create new list, get share URL
+Result: `{"status":"login-ok","expires_in":3600}`
+
+Tokens are cached at `~/.migros-cli/web_session.json`. Re-login only needed when refresh token expires.
+
+## Step 2 — Check current offers
 
 ```bash
-sed "s|__USER__|$MIGROS_USER|g;s|__PASS__|$MIGROS_PASS|g" ./scripts/migros-login.js | xargs -0 playwright-cli --config cli.config.json run-code
+bash ./scripts/migros-offers.sh
 ```
 
-Result: `login-ok`, `list-created`, and `share-url:<url>`.
-Remember the share URL — hand it to the user at the end.
+Result: JSON with promotions. Use this to prefer sale items when selecting products.
 
-## Step 3 — Check current offers (optional)
-
-```bash
-cat ./scripts/migros-offers.js | xargs -0 playwright-cli --config cli.config.json run-code
-```
-
-Result: JSON with up to 30 offers: `{ name, price, oldPrice, discount, size, id }`.
-Use this to prefer sale items when selecting products.
-
-## Step 4 — Add products (one call per product)
-
-### 4a — By product ID (fully programmatic)
-
-```bash
-sed "s|__QUERY__|5373798|g" ./scripts/migros-add.js | xargs -0 playwright-cli --config cli.config.json run-code
-```
-
-Result: `{"status":"added","query":"5373798","id":"5373798"}`
-
-### 4b — By text search, then pick
+## Step 3 — Search products
 
 Always search in **German** — Migros.ch is a Swiss German site.
 
-**Search:**
 ```bash
-sed "s|__QUERY__|spaghetti|g" ./scripts/migros-search.js | xargs -0 playwright-cli --config cli.config.json run-code
+bash ./scripts/migros-search.sh "spaghetti"
 ```
 
-Result: JSON array with up to 10 results: `{ index, name, price, size, unitPrice, labels, id }`.
-- `labels`: product badges like `["BIO", "REGION", "FRESHNESS"]`
+Result: JSON with up to 10 results: `{ id, name, brand, description, price, quantity, promotionText }`.
 
-**Empty results?** Try once with a simpler/alternative query (e.g. "laktosefreie milch" → "milch"), then pick the best match.
+The `description` field is the most important for selection — it contains fat %, UHT/pasteurised, Bio, lactose-free, etc.
 
-**Pick** the best result by index (products are sorted by relevance; best match is usually top 3):
+**Empty results?** Try a simpler/alternative query (e.g. "laktosefreie milch" → "milch").
+
+### Selecting the right product
+
+Search often returns many similar products. Use these rules to pick the best match:
+
+1. **Match the user's constraints first.** If they say "Bio Milch", only consider items whose `description` contains "Bio". If they say "laktosefrei", match that. Never substitute a conventional product when organic was requested (or vice versa).
+2. **Prefer standard single-unit packs.** Pick `1l` over `6 x 1l` or `250ml` unless the user explicitly asked for a multipack or small size.
+3. **Prefer items on promotion.** If `promotionText` is non-empty, prefer that product (all else being equal). Check offers first (Step 2) to know what's on sale.
+4. **Prefer Migros own brands** (M-Classic, M-Budget, Migros Bio, Alnatura) for everyday staples unless the user names a specific brand.
+5. **When still ambiguous, prefer the cheapest option** in the standard size.
+
+### Search tips
+
+- Always search in **German** — Migros.ch is a Swiss German site.
+- Use the most specific German term: "Rüebli" not "Karotten", "Poulet" not "Huhn".
+- For compound items (e.g. "Bio Vollmilch"), search the main noun ("Vollmilch") and filter results by description.
+- If a first search returns nothing relevant, try synonyms or broader terms.
+
+## Step 4 — Add products to basket (one call per product)
+
+Use the `id` from search results:
+
 ```bash
-sed "s|__INDEX__|1|g" ./scripts/migros-pick.js | xargs -0 playwright-cli --config cli.config.json run-code
+bash ./scripts/migros-add.sh 100005465
 ```
 
-Result: `{"status":"added","index":1,"id":"..."}`
+With quantity:
+```bash
+bash ./scripts/migros-add.sh 100005465 2
+```
+
+Result: `{"status":"added","id":"100005465","quantity":1,"listId":31798100}`
 
 ## Step 5 — Validate cart
 
 ```bash
-cat ./scripts/migros-cart.js | xargs -0 playwright-cli --config cli.config.json run-code
+bash ./scripts/migros-cart.sh
 ```
 
-Result: `{"items":42,"total":"187.50"}`
+Result: JSON with basket contents and totals.
 
-## Step 6 — Close browser
+## Step 6 — Get share URL
 
 ```bash
-playwright-cli --config cli.config.json close
+python3 ./scripts/migros-api.py share
 ```
 
-Always close when done to free the browser session.
+Result: `{"shareUrl":"https://www.migros.ch/list/aBcDeFgH","listId":...}`
 
 ## Summary report
 
 At the end, always report:
 - **Added:** list of successfully added products
 - **Not added:** list of failed products (and why)
-- **Share link:** the share URL from Step 2
+- **Share link:** the share URL from Step 6
 
 ## Error handling
 
-- If a script fails, inspect `### Error` in the output.
-- Use `playwright-cli --config cli.config.json snapshot` as a last resort for debugging.
-- Bot protection: migros.ch uses bot detection. After `open`/`goto`, wait 5–8s before the next command if needed.
+- `"leshop-error":"expiredtoken"` → Re-login: `bash ./scripts/migros-login.sh`
+- `401` on web API → Token refresh failed, re-login
+- Network errors → Check `curl_cffi` is installed, check connectivity to migros.ch
+
+## API reference
+
+| Endpoint | Method | Auth | Purpose |
+|----------|--------|------|---------|
+| `/onesearch-oc-seaapi/public/v5/search` | POST | Bearer | Product search |
+| `/product-display/public/v4/product-cards` | POST | Bearer | Product details (name, price) |
+| `/shopping-list/public/v3/items` | PUT | Bearer | Add to online basket |
+| `/shopping-list/public/v2/list/details` | GET | Bearer | Basket contents |
+| `/shopping-list/public/v1/lists/{id}/invitation` | GET | Bearer | Get share link |
