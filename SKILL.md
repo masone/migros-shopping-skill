@@ -25,6 +25,15 @@ Requires: `curl_cffi` (`pip install curl_cffi`)
 
 Always use **online** context (never instore).
 
+## Mandatory Rules — Read Before Each Run
+
+- **Always** read `memory/migros/products.md` first — contains verified API IDs (format `100XXXXXX`)
+- If product with ID is in the catalog → **skip step 3 (search) and directly to Step 4 (Add by ID)**, do not search
+- Only if no catalog entry → Steps 3+4 (Search then Add)
+- IDs without leading `100` are outdated — **let the user know they have the wrong IDs**
+
+---
+
 ## Step 0 — Login
 
 ```bash
