@@ -1,6 +1,6 @@
 ---
 name: migros-shopping
-description: Automate Migros.ch shopping — search products, build a cart, and generate a shareable list link. Use when adding products, filling a shopping cart, or creating a share link on migros.ch.
+description: "Grocery shopping on Migros.ch — create a shopping list (Einkaufsliste), search and add products to cart, check offers, and get a share link. Use for weekly shopping, buying groceries, filling a Migros cart, building a grocery list, or any Migros-related shopping task."
 allowed-tools: Bash(python3:*), Bash(bash:*)
 ---
 
@@ -12,29 +12,28 @@ No browser required. Uses OAuth PKCE (same as Migros mobile app) + web session f
 
 ## Environment
 
-```bash
-# Required — set in .env file at project root:
-MIGROS_USERNAME=your@email.com
-MIGROS_PASSWORD=yourpassword
-MIGROS_REGION=gmzh          # See .env.example for all regions
-MIGROS_ZIPCODE=8047
-MIGROS_LANGUAGE=de          # de, fr, it, en (default: de)
-```
+Configure `.env` at project root (see `.env.example` for all options). Required: `MIGROS_USERNAME`, `MIGROS_PASSWORD`, `MIGROS_REGION`, `MIGROS_ZIPCODE`.
 
-Requires: `curl_cffi` (`pip install curl_cffi`)
+### Dependencies
+
+The API client needs `curl_cffi` (a Python HTTP library that can impersonate browser TLS fingerprints, which is required to pass Migros's Cloudflare protection). Before the first run, check if it's installed and install if missing:
+
+```bash
+python3 -c "import curl_cffi" 2>/dev/null || pip install curl_cffi
+```
 
 Always use **online** context (never instore).
 
-## Mandatory Rules — Read Before Each Run
+## Before You Start
 
-- **Always** read `memory/migros/products.md` first — contains verified API IDs (format `100XXXXXX`)
-- If product with ID is in the catalog → **skip step 3 (search) and directly to Step 4 (Add by ID)**, do not search
-- Only if no catalog entry → Steps 3+4 (Search then Add)
-- IDs without leading `100` are outdated — **let the user know they have the wrong IDs**
+1. Check if `memory/migros/products.md` exists — it has verified product IDs (format `100XXXXXX`). Use those IDs directly in Step 4, skipping search. This saves significant time since search requires a web session warm-up per call.
+2. IDs without the `100` prefix are from an old format — ask the user to update them.
 
 ---
 
 ## Step 0 — Login
+
+Always run login — it's fast and handles its own token caching. Don't try to guess whether a session exists.
 
 ```bash
 bash ./scripts/migros-login.sh
@@ -42,25 +41,25 @@ bash ./scripts/migros-login.sh
 
 Result: `{"status":"login-ok","expires_in":3600}`
 
-Tokens are cached at `~/.migros-cli/web_session.json`. Re-login only needed when refresh token expires.
-
 ## Step 1 — Create a new list
 
-Always create a fresh list before adding products, to avoid stale items from previous runs.
+Always create a fresh list before adding products (reusing old lists causes duplicate items and stale pricing).
 
 ```bash
-python3 ./scripts/migros-api.py newlist "Einkauf 16.03."
+python3 ./scripts/migros-api.py newlist "Einkauf $(date +%d.%m.)"
 ```
 
-Result: `{"status":"created","listId":31951246,"name":"Einkauf 16.03."}`
+Result: `{"status":"created","listId":31951246,"name":"Einkauf 22.03."}`
 
 ## Step 2 — Check current offers
+
+Check offers before searching so you can prefer sale items when selecting products.
 
 ```bash
 bash ./scripts/migros-offers.sh
 ```
 
-Result: JSON with promotions. Use this to prefer sale items when selecting products.
+Result: JSON with promotions: `{ id, name, brand, price, quantity, promotionText }`.
 
 ## Step 3 — Search products
 
@@ -74,27 +73,28 @@ Result: JSON with up to 10 results: `{ id, name, brand, description, price, quan
 
 The `description` field is the most important for selection — it contains fat %, UHT/pasteurised, Bio, lactose-free, etc.
 
-**Empty results?** Try a simpler/alternative query (e.g. "laktosefreie milch" → "milch").
+**Empty results?** Try a simpler/alternative query (e.g. "laktosefreie milch" -> "milch").
 
 ### Selecting the right product
 
 Search often returns many similar products. Use these rules to pick the best match:
 
 1. **Match the user's constraints first.** If they say "Bio Milch", only consider items whose `description` contains "Bio". If they say "laktosefrei", match that. Never substitute a conventional product when organic was requested (or vice versa).
-2. **Prefer standard single-unit packs.** Pick `1l` over `6 x 1l` or `250ml` unless the user explicitly asked for a multipack or small size.
-3. **Prefer items on promotion.** If `promotionText` is non-empty, prefer that product (all else being equal). Check offers first (Step 2) to know what's on sale.
-4. **Prefer Migros own brands** (M-Classic, M-Budget, Migros Bio, Alnatura) for everyday staples unless the user names a specific brand.
-5. **When still ambiguous, prefer the cheapest option** in the standard size.
+2. **Prefer standard single-unit packs.** Pick `1l` over `6 x 1l` or `250ml` unless the user explicitly asked for a multipack or small size. Multipacks are often store-only and fail to add online.
+3. **Prefer items on promotion.** If `promotionText` is non-empty, prefer that product (all else being equal).
+4. **When still ambiguous,** prefer Migros own brands (M-Classic, M-Budget, Migros Bio, Alnatura) for everyday staples, and pick the cheapest standard-size option.
 
 ### Search tips
 
-- Search in the configured language. For German: use specific terms like "Rüebli" not "Karotten", "Poulet" not "Huhn".
-- For compound items (e.g. "Bio Vollmilch"), search the main noun ("Vollmilch") and filter results by description.
-- If a first search returns nothing relevant, try synonyms or broader terms.
+Search in the configured language (e.g., "Ruebli" not "Karotten", "Poulet" not "Huhn"). For compound terms like "Bio Vollmilch", search the main noun ("Vollmilch") and filter results by description. If no results, try synonyms or broader terms.
+
+### Recipes and meal plans
+
+If the user provides a recipe or meal plan, extract the ingredient list first, then process each ingredient through the normal search flow. Use reasonable default quantities (e.g., 1 pack butter, 500g pasta) unless the recipe specifies amounts.
 
 ## Step 4 — Add products to basket (one call per product)
 
-Use the `id` from search results:
+Use the `id` from search results or the product catalog:
 
 ```bash
 bash ./scripts/migros-add.sh 100005465
@@ -126,24 +126,28 @@ Result: `{"shareUrl":"https://www.migros.ch/list/aBcDeFgH","listId":...}`
 ## Summary report
 
 At the end, always report:
-- **Added:** list of successfully added products
+- **Added:** list of successfully added products with names and prices
 - **Not added:** list of failed products (and why)
 - **Share link:** the share URL from Step 6
 
+## Maintaining the product catalog
+
+After a successful run, update `memory/migros/products.md` with any newly discovered products the user is likely to re-order. This lets future runs skip search entirely for known products.
+
+Format:
+```markdown
+| Product | ID | Brand | Notes |
+|---|---|---|---|
+| Vollmilch UHT 1l | 100005465 | M-Classic | Standard milk |
+| Spaghetti 500g | 100012345 | M-Classic | |
+```
+
+Create the file if it doesn't exist. Only store products with verified `100XXXXXX` IDs.
+
 ## Error handling
 
-- `"leshop-error":"expiredtoken"` → Re-login: `bash ./scripts/migros-login.sh`
-- `401` on web API → Token refresh failed, re-login
-- Network errors → Check `curl_cffi` is installed, check connectivity to migros.ch
-
-## API reference
-
-| Endpoint | Method | Auth | Purpose |
-|----------|--------|------|---------|
-| `/onesearch-oc-seaapi/public/v5/search` | POST | Bearer | Product search |
-| `/product-display/public/v4/product-cards` | POST | Bearer | Product details (name, price) |
-| `/shopping-list/public/v1/list` | POST | Bearer | Create new list |
-| `/shopping-list/public/v1/lists/overview` | GET | Bearer | List all lists |
-| `/shopping-list/public/v3/items` | PUT | Bearer | Add to online basket |
-| `/shopping-list/public/v2/list/details` | GET | Bearer | Basket contents |
-| `/shopping-list/public/v1/lists/{id}/invitation` | GET | Bearer | Get share link |
+- `"leshop-error":"expiredtoken"` or `401` on web API -> Re-login: `bash ./scripts/migros-login.sh`
+- Add returns error with unknown ID -> Product may be store-only or discontinued. Search for an alternative.
+- List not found error -> List was deleted externally. Create a new one (Step 1).
+- `429` or rate limiting -> Wait 5 seconds and retry once.
+- Network errors -> Check `curl_cffi` is installed, check connectivity to migros.ch.
