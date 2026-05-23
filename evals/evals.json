@@ -1,0 +1,47 @@
+{
+  "skill_name": "migros-shopping",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Bestell mir Milch, Brot und Butter bei Migros",
+      "expected_output": "Should login, create a new list with today's date, search for each product (Milch, Brot, Butter), add them to the cart, validate the cart, and produce a share URL with a summary report.",
+      "files": [],
+      "assertions": [
+        {"name": "login-executed", "description": "Ran migros-login.sh to authenticate"},
+        {"name": "list-created-with-date", "description": "Created a new shopping list with today's date (22.03.)"},
+        {"name": "searched-all-products", "description": "Ran search for all 3 items: Milch, Brot, Butter"},
+        {"name": "products-added", "description": "Added exactly 3 products to cart via migros-add.sh"},
+        {"name": "share-url-generated", "description": "Produced a migros.ch share URL"},
+        {"name": "summary-report", "description": "Output includes Added/Not added/Share link sections"}
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "I need ingredients for a pasta carbonara from Migros — spaghetti, speck, eier, parmesan, and rahm",
+      "expected_output": "Should recognize this as a recipe/ingredient list, login, create a new list, search for each ingredient (spaghetti, Speck, Eier, Parmesan, Rahm), select appropriate products, add them to the cart, and produce a share URL with a summary report.",
+      "files": [],
+      "assertions": [
+        {"name": "login-executed", "description": "Ran migros-login.sh to authenticate"},
+        {"name": "list-created-with-date", "description": "Created a new shopping list with today's date"},
+        {"name": "searched-all-ingredients", "description": "Searched for all 5 ingredients: spaghetti, speck, eier, parmesan, rahm"},
+        {"name": "products-added", "description": "Added exactly 5 products to cart via migros-add.sh"},
+        {"name": "share-url-generated", "description": "Produced a migros.ch share URL"},
+        {"name": "summary-report", "description": "Output includes Added/Not added/Share link sections"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Füg Migros Bio Vollmilch und M-Budget Toast zu meinem Migros Warenkorb hinzu",
+      "expected_output": "Should login, create a new list, search for 'Vollmilch' and filter for Bio, search for 'Toast' and filter for M-Budget, add them to the cart, validate, and produce a share URL with a summary.",
+      "files": [],
+      "assertions": [
+        {"name": "login-executed", "description": "Ran migros-login.sh to authenticate"},
+        {"name": "list-created-with-date", "description": "Created a new shopping list with today's date"},
+        {"name": "brand-matching", "description": "Selected a Bio product for Vollmilch and an M-Budget product for Toast"},
+        {"name": "products-added", "description": "Added exactly 2 products to cart via migros-add.sh"},
+        {"name": "share-url-generated", "description": "Produced a migros.ch share URL"},
+        {"name": "summary-report", "description": "Output includes Added/Not added/Share link sections"}
+      ]
+    }
+  ]
+}
