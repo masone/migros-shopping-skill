@@ -34,7 +34,7 @@ TOKEN_FILE = Path.home() / ".migros-cli" / "web_session.json"
 
 CLIENT_ID = "MigrosAPP_Android_5Srz_uFJSZWdZCrmNx10Tw"
 CLIENT_SECRET = "ybuoJa1aSj96Ld8JYMFQ8zNZV13h5J"
-REDIRECT_URI = "ch.migros.app://login.app/redirect"
+REDIRECT_URI = "https://www.migros.ch/oauth2/redirect"
 AUTH_URL = "https://login.migros.ch/oauth2/authorize"
 TOKEN_URL = "https://login.migros.ch/oauth2/token"
 SCOPES = "openid offline_access"
